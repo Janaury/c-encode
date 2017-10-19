@@ -26,8 +26,8 @@ void base64_file_encode(const char* origin_filepath,const char* encode_filepath)
 void base64_file_decode(const char* encode_filepath,const char* origin_filepath);
 
 /*内部实现用函数*/
-void base64_unit_encode(const unsigned char* raw_data,unsigned char* enc_data)
-int base64_unit_decode(const unsigned char* enc_data,unsigned char* raw_data)
+void base64_unit_encode(const unsigned char* raw_data,unsigned char* enc_data);
+int base64_unit_decode(const unsigned char* enc_data,unsigned char* raw_data);
 /*base64编码*/ 
 
 
@@ -74,6 +74,8 @@ int permutation_decode(char* cipher_text,int len,char* key,int key_len,char** re
 #define M64_6_1   0x000000000000003f  
 #define M64_56    0x0080000000000000
 
+#define ERROR     -1
+#define OK        1
 /*数据类型定义*/
 typedef unsigned long long uint64_t;
 typedef unsigned long  uint32_t;
