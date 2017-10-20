@@ -76,6 +76,13 @@ int permutation_decode(char* cipher_text,int len,char* key,int key_len,char** re
 
 #define ERROR     -1
 #define OK        1
+
+#define ENCRYPT  1
+#define DECRYPT  0
+
+/*定义文件加密时每次加密的大小*/
+#define DES_FILE_BUFFZIE_BY_BLOCK_AMOUNT   10
+#define DES_FILE_BUFFSIZE       DES_FILE_BUFFSIZE_BY_AMOUNT*8
 /*数据类型定义*/
 typedef unsigned long long uint64_t;
 typedef unsigned long  uint32_t;
@@ -94,14 +101,18 @@ typedef unsigned char  uint8_t;
 *参数为密码文件的路径，用于存放读取结果的指针
 *返回-1表示失败，返回1表示成功
 *
-*des_file_code(const char* origin_path,const char* des_path,uint64_t key,int mode)
+*des_file_encode(const char* origin_path,const char* des_path,uint64_t key)
 *加密一个文件
-*参数为原文件路径，处理后文件的路径，密钥和运算模式（1表示加密，0表示解密）
+*参数为原文件路径，处理后文件的路径，密钥
 *返回-1表示失败，返回1表示成功
+*
+*des_file_decode(const char* origin_path,const char* des_path,uint64_t key)
+*解密一个文件，与加密类似
 */
 int des_generate_keyfile(const char* keyfile_path);
 int des_read_keyfile(const char* keyfile_path, uint64_t* key);
-int des_file_code(const char* origin_path,const char* des_path,uint64_t key,int mode);
+int des_file_encode(const char* origin_path,const char* des_path,uint64_t key);
+int des_file_decode(const char* origin_path,const char* des_path,uint64_t key);
 
 /*较内层的函数
 *des_get_key()

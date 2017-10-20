@@ -340,32 +340,97 @@ int des_read_keyfile(const char* keyfile_path, uint64_t* key)
     return OK;
  } 
 
-int des_file_code(const char* origin_path,const char* des_path,uint64_t key,int mode)
-{/*加密（解密）文件*/
-    int len;
-    int i;
-    FILE* origin = fopen(origin_path,"rb");
-    FILE* des = fopen(des_path,"wb");
-    uint64_t raw[10],processed[10];
-    uint64_t sub_key[16];
-    
-    if(origin == NULL||des == NULL)
-        return ERROR;
-        
-    des_get_sub_key(key,sub_key);
-    while(1)
-    {
-        len = fread(raw,8,10,origin);
-        if(!len)
-            break;
-            
-        for(i=0;i<10;i++)
-            des_unit_code(raw[i],sub_key,&processed[i],mode);
-
-        if(fwrite(processed,8,len,des) != len)
-            return ERROR;
-    }
-    fclose(origin);
-    fclose(des);
-    return OK;
+ int des_file_encode(const char* origin_path,const char* des_path,uint64_t key)
+ {/*加密文件*/
+     int i;
+     int len = DES_FILE_BUFFSIZE;
+     int block_amount = DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT;
+     uint64_t left_byte = 0;
+     FILE* origin = fopen(origin_path,"rb");
+     FILE* des = fopen(des_path,"wb");
+     uint64_t raw[10],processed[10];
+     uint64_t sub_key[16];
+     
+     if(origin == NULL||des == NULL)
+         return ERROR;
+ 
+     des_get_sub_key(key,sub_key);
+     while(1)
+     {
+         len = fread(raw,1,DES_FILE_BUFFSIZE,origin);
+         if(len < DES_FILE_BUFFSIZE)
+         {
+             if(len == 0)
+             {
+                 fwrite(&left_byte,8,1,des);
+                 break;
+             }
+             else
+             {
+                 block_amount = len / 8;
+                 left_byte = len % 8;
+                 if(left_byte != 0)
+                     block_amount++;
+             }
+         }
+         for(i=0;i<block_amount;i++)
+             des_unit_code(raw[i],sub_key,&processed[i],ENCRYPT);
+ 
+         if(fwrite(processed,8,block_amount,des) != block_amount)
+             return ERROR;
+     }
+     fclose(origin);
+     fclose(des);
+     return OK;
+ }
+ 
+ int des_file_decode(const char* origin_path,const char* des_path,uint64_t key)
+ {/*解密文件*/
+     int i;
+     int len = DES_FILE_BUFFSIZE;
+     int block_amount = DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT;
+     int block_amount_next = DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT;
+     FILE* origin = fopen(origin_path,"rb");
+     FILE* des = fopen(des_path,"wb");
+     uint64_t left_byte = 0;
+     uint64_t buff1[100],buff2[100],processed[100];
+     uint64_t* raw = buff1, *raw_next = buff2, *swap_uint64_t_p;
+     uint64_t sub_key[16];
+     
+     if(origin == NULL||des == NULL)
+         return ERROR;
+ 
+     des_get_sub_key(key,sub_key);
+     
+     block_amount = fread(raw,8,DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT,origin);
+     while(1)
+     {
+         
+         block_amount_next = fread(raw_next,8,DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT,origin);
+         if(block_amount < DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT || block_amount_next == 0)
+         {
+             if(block_amount == 0)
+                 break;
+             else
+             {
+                 left_byte = raw[--block_amount];
+                 len = (block_amount-1) * 8 + left_byte;
+             }
+             
+         }
+         for(i=0;i<block_amount;i++)
+             des_unit_code(raw[i],sub_key,&processed[i],DECRYPT);
+ 
+         if(fwrite(processed,1,len,des) != len)
+             return ERROR;
+ 
+         swap_uint64_t_p = raw;
+         raw = raw_next;
+         raw_next = swap_uint64_t_p;
+         
+         block_amount = block_amount_next;
+     }
+     fclose(origin);
+     fclose(des);
+     return OK;
 }
