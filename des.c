@@ -1,8 +1,11 @@
 /*des加密算法*/
 #include<stdio.h>
+#include<stdlib.h> 
 #include<string.h>
 #include<time.h>
 #include"c_encode.h"
+
+//#define DEBUG     //启用以显示调试信息
 
 /*生成子密钥用到的置换*/
 int shift[] = { 1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1};
@@ -141,9 +144,9 @@ int iip[] =
     33,  1, 41,  9, 49, 17, 57, 25
 };
 
-
+/*给密钥添加校验，默认是奇校验*/
 void des_add_check(uint8_t* key_byte)
-{/*给密钥添加校验，默认是奇校验*/
+{
   int i;
   uint8_t counter=0,tmp = *key_byte;
   for(i=7;i>0;i--)
@@ -156,281 +159,352 @@ void des_add_check(uint8_t* key_byte)
 }
 
 
-uint64_t des_get_key()
+/*print intermediate result used for debug*/
+void print_byte(uint8_t* buff,int len,const char* notice)
+{
+	int i;
+    printf("%s",notice);
+    printf("0x");
+	for(i=0;i<len;i++)
+	{
+		printf("%02x",buff[i]);
+	}
+	printf("\n");
+}
+
+void des_permutation(uint8_t* raw,uint8_t* processed,int processed_bit_len,int* trans_list)
+{/*置换选择,内部函数*/
+	int i;
+    int byte_index,bit_index;
+    uint8_t tmp_bit;
+    int byte_len = (processed_bit_len + processed_bit_len % 8) / 8;
+    memset(processed,0,byte_len);
+
+    for(i=0;i<processed_bit_len;i++)
+    {
+        byte_index = (trans_list[i] - 1) / 8;
+        bit_index = (trans_list[i] - 1) % 8;
+        tmp_bit = (raw[byte_index] << bit_index) & M8_8;
+        processed[i / 8] |= tmp_bit >> (i % 8);
+    }
+}
+
+void des_lshift(uint8_t* data,int shift_len)
+{/*循环左移*/
+    int i;
+    uint8_t shift_buff[4];
+    memcpy(shift_buff,data,4);
+    for(i=0;i<3;i++)
+        data[i] = (data[i] << shift_len) | (shift_buff[i+1] >> (8 - shift_len));
+
+    data[3] = (data[3] << shift_len) | ((shift_buff[0]) >> (4 - shift_len)) & M8_8_5;
+}
+
+void des_get_sbox_index(uint8_t* data,int index,int* row,int* col)
+{/*获取s盒子行号和列号，内部函数*/
+    uint8_t data_6bit;
+    uint8_t r,c;
+    int byte_index = index / 4 * 3;
+    switch(index%4)
+    {
+        case 0:
+            data_6bit = (data[byte_index] & M8_8_3) >> 2;
+            break;
+        case 1:
+            data_6bit = ((data[byte_index] & M8_2_1) << 4) | (data[byte_index + 1] >> 4);
+            break;
+        case 2:
+            data_6bit = ((data[byte_index + 1] & M8_4_1) << 2) | (data[byte_index + 2] >> 6);
+            break; 
+        case 3:
+            data_6bit = data[byte_index + 2] & M8_6_1;
+            break;
+    }
+    r = ((data_6bit & M8_6) >> 4) | (data_6bit & M8_1);
+    c = (data_6bit & M8_5_2) >> 1;
+    *row = r;
+    *col = c;
+}
+
+void byte_xor(uint8_t* op1,uint8_t* op2,int byte_len,uint8_t* result)
+{/*数组异或，内部函数*/
+    int i;
+    for(i=0;i<byte_len;i++)
+        result[i] = op1[i] ^ op2[i];
+}
+
+void des_generate_key(uint8_t* key_buff_address)
 {/*生成一个密钥*/
   int i;
-  uint8_t tmp8 = 0;
-  uint64_t tmp64 = 0;
-  uint64_t key = 0;
+  uint8_t* key = key_buff_address;
   srand(time(NULL));
   
-  for(i=56;i>=0;i-=8)
+  for(i=0;i<=7;i++)
   {
-    tmp8 = rand() % 255;
+    key[i] = rand() % 255;
     /*添加校验，可以去掉*/
-    des_add_check(&tmp8);
-    tmp64 = (uint64_t)tmp8;
-    key |= tmp64 << i;
+    des_add_check(&key[i]);
   }
-  return key;
 }
 
-void des_get_sub_key(uint64_t key,uint64_t* sub_key)
-{/*生成16个子密钥*/
+void des_generate_subkey(uint8_t* main_key, Subkey* subkey_buff_address)
+{/*生成子密钥*/
     int i,j;
-    uint32_t l = 0,r = 0;
-    uint64_t lr = 0,tmp64 = 0;
-  
-  /*密钥初始置换*/
-    for(i=0;i<28;i++)
-    {
-        tmp64 = (key << (kp1[i] - 1)) & M64_64;
-        l |= tmp64 >> (36+i);
-        tmp64 = (key << (kp1[i+28] - 1))& M64_64;
-        r |= tmp64 >> (36+i);
-    }
-    /*循环左移，生成16个子密钥*/
+    Subkey* subkey = subkey_buff_address;
+    uint8_t l[4],r[4];
+    uint8_t tmp_bit;
+    uint8_t* origin_array;
+    int byte_index,bit_index;
+   
+    memset(subkey_buff_address,0,16*sizeof(Subkey));
+
+    des_permutation(main_key,l,28,kp1);
+    des_permutation(main_key,r,28,kp1+28);
+	
     for(i=0;i<16;i++)
     {
-        l = l << shift[i];
-        r = r << shift[i];
-        if(shift[i]==1)
-        {
-            l |= (l & M32_29) >> 28;
-            r |= (r & M32_29) >> 28;
-        }
-        else
-        {
-            l |= (l & M32_30_29)>>28;
-            r |= (r & M32_30_29)>>28;
-        }
-
-        /*合并左右两部分，准备生成子密钥*/
-        lr = l;
-        lr = lr << 28;
-        lr |= r & 0x0ffffff;
-        
-        /*生成子密钥*/
-        sub_key[i] = 0;
+    	#ifdef	DEBUG
+    	print_byte(l,4,"l_key:");
+		print_byte(r,4,"r_key:"); 
+		#endif
+		
+        des_lshift(l,shift[i]);
+        des_lshift(r,shift[i]);
         for(j=0;j<48;j++)
         {
-            tmp64 = (lr << (kp2[j]-1)) & M64_56;
-            sub_key[i] |= tmp64 >> (8 + j);
+            byte_index = ((kp2[j] - 1) % 28) / 8;
+            bit_index = ((kp2[j] - 1) % 28) % 8;
+            if(kp2[j] <= 28)
+                origin_array = l;
+            else
+                origin_array = r;
+            tmp_bit = (origin_array[byte_index] << bit_index) & M8_8;
+            subkey[i].byte[j / 8] |= tmp_bit >> (j % 8);
         }
+
+        #ifdef DEBUG
+        print_byte(subkey[i].byte,6,"sub_key:");
+        #endif
+
     }
 }
 
-void des_unit_code(uint64_t raw,uint64_t* sub_key,uint64_t* processed,int mode)
-{/*des一个单元(64bit)编码*/
+void des_unit_process(uint8_t* raw,uint8_t* processed,Subkey* subkey,int mode)
+{/*组加密*/
     int i,j;
-    int key_index = 0;
-    uint8_t tmp8 = 0;
-    uint8_t x = 0,y = 0;    //用于s盒子索引
-    uint32_t tmp32 = 0;
-    uint32_t l = 0,r = 0,l_n = 0,r_n = 0;
-    uint32_t after_s = 0;
-    uint64_t tmp64 = 0;
-    uint64_t before_s = 0;
-    uint64_t before_iip = 0;
-    uint64_t finish = 0;
+    int s_row,s_col;
+    int key_index;
+    uint8_t iip_buff[8];
+    uint8_t l[4],r[4];
+    uint8_t l_next[4],r_next[4];
+    uint8_t data_expand_buff[6];
+    uint8_t after_sbox_buff[4];
 
-    
-    for(i=0;i<32;i++)
-    {/*初始置换*/
-        tmp64 = (raw << (ip[i] - 1)) & M64_64;
-        l |= tmp64 >> (32 + i);
-        tmp64 = (raw << (ip[i+32] - 1)) & M64_64;
-        r |= tmp64 >> (32 + i);
-    }
-    
-    
+    des_permutation(raw,l,32,ip);
+    des_permutation(raw,r,32,ip+32);
+	
     for(i=0;i<16;i++)
-    {/*轮加密*/
-
-        /*初始化中间变量*/
-        l_n = 0;        //下一轮的左部分数据
-        r_n = 0;        //  下一轮的右部分数据
-        before_s = 0;   //存放32位原始数据扩展后的48位数据
-        after_s = 0;    //存放s盒代换后的32位数据
-        key_index = (mode == 1)? i:15-i;    //根据加密或解密选择密钥
-        
-        l_n = r;        //填充下一轮的左部分数据
-
-        /*32bit数据扩展到48bit（选择运算E）*/
-        for(j=0;j<48;j++)
-        {
-            tmp64 = r << (e[j]-1);
-            tmp64 = (tmp64 & M64_32) << 16;
-            before_s |= tmp64 >> j;
-        }
-        /*同子密钥异或*/
-        before_s ^= sub_key[key_index];
-        
-        /*s盒运算*/
-        for(j=0;j<8;j++)
-        {
-            tmp8 = (before_s >> (42-j*6)) & M64_6_1;
-            y = ((tmp8 & 0x20) >> 4) | (tmp8 & M8_1);
-            x = (tmp8 & M8_5_2) >> 2;
-            tmp32 = s[j][(y<<4)+x];
-            after_s |= tmp32 << (28 - (j<<2));
-        }
-        /*32bit数据再次置换（置换运算P）*/
-        for(j=0;j<32;j++)
-        {
-            tmp32 = (after_s << (p[j] - 1)) & M32_32;
-            r_n |= tmp32 >> j;
-        }
-        r_n ^= l;
-        l = l_n;
-        r = r_n;
-    }
-
-    /*合并左右两部分，得到中间结果*/
-    tmp64 = 0;
-    tmp64 = r;
-    tmp64 = tmp64 << 32;
-    tmp64 |= l;
-    before_iip = tmp64;
-
-    /*最后的逆置换*/
-    for(i=0;i<64;i++)
     {
-        tmp64 = (before_iip<< (iip[i]-1)) & M64_64;
-        finish |= tmp64 >> i;
+    	#ifdef DEBUG
+    	printf("index:%d\n",i+1);
+    	#endif
+    	
+        key_index = (mode == 1)? i:15 - i;
+        memcpy(l_next,r,4);
+        des_permutation(r,data_expand_buff,48,e);
+        
+        #ifdef DEBUG
+        print_byte(l,4,"l:");
+        print_byte(r,4,"r:");
+        print_byte(subkey[key_index].byte,6,"subkey:");
+        print_byte(data_expand_buff,6,"data_expand1:");
+        #endif
+		
+		byte_xor(data_expand_buff,subkey[key_index].byte,6,data_expand_buff);
+        
+        memset(after_sbox_buff,0,4);
+        for(j=0;j<4;j++)
+        {
+            des_get_sbox_index(data_expand_buff,j << 1,&s_row,&s_col);
+            after_sbox_buff[j] |= s[ j << 1 ][s_row * 16 + s_col] << 4;
+            des_get_sbox_index(data_expand_buff,(j << 1) + 1,&s_row,&s_col);
+            after_sbox_buff[j] |= s[(j << 1) + 1][s_row * 16 + s_col];
+        }
+		
+		//print_byte(subkey[key_index].byte,6,"subkey:");
+		
+		des_permutation(after_sbox_buff,r_next,32,p);
+		
+		#ifdef DEBUG
+		print_byte(r_next,4,"after_sbox_buff:");
+		#endif
+        
+		byte_xor(l,r_next,4,r_next);
+        
+		memcpy(l,l_next,4);
+        memcpy(r,r_next,4);
     }
-    *processed = finish;
+
+    memcpy(iip_buff,r,4);
+    memcpy(iip_buff+4,l,4);
+    des_permutation(iip_buff,processed,64,iip);
 }
 
 int des_generate_keyfile(const char* keyfile_path)
-{/*生成密钥文件*/
-    int len;
-    uint8_t key_byte[8];
-    uint8_t* key_base64; 
-    FILE* fp = fopen(keyfile_path,"wb");
-    
-    if(fp == NULL)
-        return ERROR;
-    
-    uint64_t key = des_get_key();
-    memcpy(key_byte,&key,8);
-    len = base64_encode(key_byte,8,&key_base64);
-    fwrite(key_base64,1,len,fp);
-    fclose(fp);
-    return OK;
+{
+	int key_base64_byte_len; 
+    uint8_t key[8];
+    uint8_t* key_base64;
+    FILE* fp;
+
+    fp = fopen(keyfile_path,"wb");
+	if(fp == NULL)
+		return ERROR;
+	
+	des_generate_key(key);
+	key_base64_byte_len = base64_encode(key,8,&key_base64);
+    fwrite(key_base64,1,key_base64_byte_len,fp);
+    free(key_base64);
+	fclose(fp);
+	return OK;
 }
 
-int des_read_keyfile(const char* keyfile_path, uint64_t* key)
-{/*读取密钥文件*/
-    int len;
-    FILE* fp = fopen(keyfile_path,"rb");
-    uint8_t key_base64[12];
-    uint8_t* key_byte;
+int des_read_keyfile(const char* keyfile_path, uint8_t* key)
+{
+	int len;
+	FILE* fp;
+	uint8_t key_base64[12];
+	uint8_t* key_buff;
 
-    if(fp == NULL)
-        return ERROR;
-        
-    len = fread(key_base64,1,12,fp);
-    
-    if(len != 12)
-        return ERROR;
-        
-    base64_decode(key_base64,12,&key_byte);
-    memcpy(key,key_byte,8);
-    return OK;
+    fp = fopen(keyfile_path,"rb");
+	if(fp == NULL)
+		return ERROR;
+		
+    if(fread(key_base64,1,12,fp) != 12) return ERROR;
+    base64_decode(key_base64,12,&key_buff);
+    memcpy(key,key_buff,8);
+    free(key_buff);
+	return OK;
  } 
 
- int des_file_encode(const char* origin_path,const char* des_path,uint64_t key)
- {/*加密文件*/
-     int i;
-     int len = DES_FILE_BUFFSIZE;
-     int block_amount = DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT;
-     uint64_t left_byte = 0;
-     FILE* origin = fopen(origin_path,"rb");
-     FILE* des = fopen(des_path,"wb");
-     uint64_t raw[10],processed[10];
-     uint64_t sub_key[16];
-     
-     if(origin == NULL||des == NULL)
-         return ERROR;
- 
-     des_get_sub_key(key,sub_key);
-     while(1)
-     {
-         len = fread(raw,1,DES_FILE_BUFFSIZE,origin);
-         if(len < DES_FILE_BUFFSIZE)
-         {
-             if(len == 0)
-             {
-                 fwrite(&left_byte,8,1,des);
-                 break;
-             }
-             else
-             {
-                 block_amount = len / 8;
-                 left_byte = len % 8;
-                 if(left_byte != 0)
-                     block_amount++;
-             }
-         }
-         for(i=0;i<block_amount;i++)
-             des_unit_code(raw[i],sub_key,&processed[i],ENCRYPT);
- 
-         if(fwrite(processed,8,block_amount,des) != block_amount)
-             return ERROR;
-     }
-     fclose(origin);
-     fclose(des);
-     return OK;
- }
- 
- int des_file_decode(const char* origin_path,const char* des_path,uint64_t key)
- {/*解密文件*/
-     int i;
-     int len = DES_FILE_BUFFSIZE;
-     int block_amount = DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT;
-     int block_amount_next = DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT;
-     FILE* origin = fopen(origin_path,"rb");
-     FILE* des = fopen(des_path,"wb");
-     uint64_t left_byte = 0;
-     uint64_t buff1[100],buff2[100],processed[100];
-     uint64_t* raw = buff1, *raw_next = buff2, *swap_uint64_t_p;
-     uint64_t sub_key[16];
-     
-     if(origin == NULL||des == NULL)
-         return ERROR;
- 
-     des_get_sub_key(key,sub_key);
-     
-     block_amount = fread(raw,8,DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT,origin);
-     while(1)
-     {
-         
-         block_amount_next = fread(raw_next,8,DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT,origin);
-         if(block_amount < DES_FILE_BUFFSIZE_BY_BLOCK_AMOUNT || block_amount_next == 0)
-         {
-             if(block_amount == 0)
-                 break;
-             else
-             {
-                 left_byte = raw[--block_amount];
-                 len = (block_amount-1) * 8 + left_byte;
-             }
-             
-         }
-         for(i=0;i<block_amount;i++)
-             des_unit_code(raw[i],sub_key,&processed[i],DECRYPT);
- 
-         if(fwrite(processed,1,len,des) != len)
-             return ERROR;
- 
-         swap_uint64_t_p = raw;
-         raw = raw_next;
-         raw_next = swap_uint64_t_p;
-         
-         block_amount = block_amount_next;
-     }
-     fclose(origin);
-     fclose(des);
-     return OK;
+int des_file_encode(const char* origin_path,const char* des_path, uint8_t* key)
+{/*加密文件，使用密文挪用技术解决短块，请不要加密小于8字节的文件*/
+    int i;
+	int byte_len,byte_len_next;
+	uint8_t raw[8],raw_next[8],processed[8];
+	FILE* origin = fopen(origin_path,"rb");
+	FILE* des = fopen(des_path,"wb");
+	Subkey subkey[16];
+    
+    origin = fopen(origin_path,"rb");
+    des = fopen(des_path,"wb");
+	if(origin == NULL||des == NULL)
+		return ERROR;
+
+    des_generate_subkey(key,subkey);
+    byte_len = fread(raw,1,8,origin);
+    if(byte_len < 8)
+        return ERROR;
+        
+	while(1)
+	{/*预读下一个块，在根据情况处理当前块*/
+		byte_len_next = fread(raw_next,1,8,origin);
+		if(byte_len_next < 8)
+		{/*最后两块处理部分*/
+            if(byte_len_next > 0)
+            {
+                des_unit_process(raw,processed,subkey,1);
+                memcpy(raw_next+byte_len_next,processed+byte_len_next,8-byte_len_next);
+                
+                #ifdef DEBUG
+                print_byte(processed,byte_len_next,"last_two_block1:");
+                #endif
+                
+                if(fwrite(processed,1,byte_len_next,des) != byte_len_next) return ERROR;
+                des_unit_process(raw_next,processed,subkey,1);
+                
+                #ifdef DEBUG
+                print_byte(processed,8,"last_two_block2:");
+                #endif
+                
+                if(fwrite(processed,1,8,des) != 8) return ERROR;;
+            }
+            else
+            {
+                des_unit_process(raw,processed,subkey,1);
+                if(fwrite(processed,1,8,des) != 8) return ERROR; 
+            }
+            break; 
+		}
+		des_unit_process(raw,processed,subkey,1);
+        if(fwrite(processed,1,8,des) != 8) return ERROR;
+        /*切换到一下块*/
+        byte_len = byte_len_next;
+        memcpy(raw,raw_next,8);
+	}
+	fclose(origin);
+	fclose(des);
+	return OK;
 }
+
+int des_file_decode(const char* origin_path,const char* des_path,uint8_t* key)
+{/*解密文件，使用密文挪用技术解决短块，请不要解密小于8字节的文件*/
+    int i;
+    int write_byte_len;
+	int byte_len,byte_len_next;
+	uint8_t raw[8],raw_next[8],processed[8],tmp[16];
+	FILE* origin;
+	FILE* des;
+	Subkey subkey[16];
+    
+    origin = fopen(origin_path,"rb");
+    des = fopen(des_path,"wb");
+	if(origin == NULL||des == NULL)
+		return ERROR;
+
+    des_generate_subkey(key,subkey);
+    byte_len = fread(raw,1,8,origin);
+    if(byte_len < 8)
+        return ERROR;
+        
+	while(1)
+	{
+		byte_len_next = fread(raw_next,1,8,origin);
+		if(byte_len_next < 8)
+		{/*最后两块处理部分*/
+            if(byte_len_next > 0)
+            {
+            	memcpy(tmp,raw,8);
+            	memcpy(tmp+8,raw_next,byte_len_next); 
+            	
+            	#ifdef DEBUG
+            	print_byte(tmp,8+byte_len_next,"last two block:");
+            	#endif
+            	
+            	memcpy(raw_next,tmp + byte_len_next,8);
+                des_unit_process(raw_next,processed,subkey,0);
+                memcpy(raw + byte_len_next,processed + byte_len_next,8-byte_len_next);
+                memcpy(tmp,processed,byte_len_next);
+                des_unit_process(raw,processed,subkey,0);
+                if(fwrite(processed,1,8,des) != 8) return ERROR;
+                if(fwrite(tmp,1,byte_len_next,des) != byte_len_next) return ERROR;
+            }
+            else
+            {
+                des_unit_process(raw,processed,subkey,0);
+                if(fwrite(processed,1,8,des) != 8) return ERROR; 
+            }
+            break; 
+		}
+		des_unit_process(raw,processed,subkey,0);
+		if(fwrite(processed,1,8,des) != 8) return ERROR;
+        
+        byte_len = byte_len_next;
+        memcpy(raw,raw_next,8);
+	}
+	fclose(origin);
+	fclose(des);
+	return OK;
+}
+
+

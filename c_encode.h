@@ -59,35 +59,35 @@ int permutation_decode(char* cipher_text,int len,char* key,int key_len,char** re
 *命名规则：
 *1. 以M开头，表示mask
 *2. M后接数据总长度
-*3. 以下划线分隔接所取区间的结束编号（最低位编号为1）
-*4. 在以下划线分隔起始编号（包括起始和结束编号的bit）
+*3. 以下划线分隔接所取区间的高位编号（最右边为最低位，最低位编号为1）
+*4. 在以下划线分隔低位编号（包括起始和结束编号的bit）
 *注意，若只取一个bit则没有第四步
 */
-#define M8_1      0x01                
-#define M8_6      0x20                
-#define M8_5_2    0x3c                
-#define M32_32    0x80000000
-#define M32_29    0x10000000
-#define M32_30_29 0x30000000          
-#define M64_64    0x8000000000000000  
-#define M64_32    0x0000000080000000  
-#define M64_6_1   0x000000000000003f  
-#define M64_56    0x0080000000000000
+#define M8_8    0x80
+#define M8_1    0x01
+#define M8_6    0x20
+#define M8_5_2  0x1e
+#define M8_4_1  0x0f    //低4位
+#define M8_8_5  0xf0    //高4位
+#define M8_8_3  0xfc    //高6位
+#define M8_6_1  0x3f    //低6位
+#define M8_2_1  0X03
+#define M8_8_7  0xc0
 
+/*状态信息*/
 #define ERROR     -1
 #define OK        1
 
 #define ENCRYPT  1
 #define DECRYPT  0
 
-/*定义文件加密时每次加密的大小*/
-#define DES_FILE_BUFFZIE_BY_BLOCK_AMOUNT   10
-#define DES_FILE_BUFFSIZE       DES_FILE_BUFFSIZE_BY_AMOUNT*8
 /*数据类型定义*/
 typedef unsigned long long uint64_t;
 typedef unsigned long  uint32_t;
 typedef unsigned char  uint8_t;
-
+typedef struct subkey{
+  uint8_t byte[6];
+}Subkey;
 /*函数定义*/
 
 /*外部功能函数
@@ -110,28 +110,11 @@ typedef unsigned char  uint8_t;
 *解密一个文件，与加密类似
 */
 int des_generate_keyfile(const char* keyfile_path);
-int des_read_keyfile(const char* keyfile_path, uint64_t* key);
-int des_file_encode(const char* origin_path,const char* des_path,uint64_t key);
-int des_file_decode(const char* origin_path,const char* des_path,uint64_t key);
+int des_read_keyfile(const char* keyfile_path, uint8_t* key);
+int des_file_encode(const char* origin_path,const char* des_path,uint8_t* key);
+int des_file_decode(const char* origin_path,const char* des_path,uint8_t* key);
 
-/*较内层的函数
-*des_get_key()
-*生成一个密钥
-*无需参数，返回一个uint64_t的密钥（64bit）
-*
-*des_add_check(uint8_t* key_byte)
-*给密钥添加校验位
-*参数为一个char，根据前7bit中1的数量设置最后一位
-*
-*des_get_sub_key(uint64_t key,uint64_t* sub_key)
-*根据密钥计算出16个子密钥
-*参数为64bit的密钥和用于存放生成的16个子密钥的数组
-*
-*des_unit_code(uint64_t raw,uint64_t* sub_key,uint64_t* processed,int mode)
-*加密一个单元
-*参数为原始数据，子密钥数组，用于接收处理后的数据的指针，运算模式（1表示加密，0表示解密）
-*/
-uint64_t des_get_key();
-void des_add_check(uint8_t* key_byte);
-void des_get_sub_key(uint64_t key,uint64_t* sub_key);
-void des_unit_code(uint64_t raw,uint64_t* sub_key,uint64_t* processed,int mode);
+/*较内层的函数*/
+void des_unit_process(uint8_t* raw,uint8_t* processed,Subkey* subkey,int mode);
+void des_generate_subkey(uint8_t* main_key, Subkey* subkey_buff_address);
+void des_generate_key(uint8_t* key_buff_address);
