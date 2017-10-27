@@ -158,20 +158,6 @@ void des_add_check(uint8_t* key_byte)
     *key_byte = *key_byte | 0x01; //最后一位置1
 }
 
-
-/*print intermediate result used for debug*/
-void print_byte(uint8_t* buff,int len,const char* notice)
-{
-	int i;
-    printf("%s",notice);
-    printf("0x");
-	for(i=0;i<len;i++)
-	{
-		printf("%02x",buff[i]);
-	}
-	printf("\n");
-}
-
 void des_permutation(uint8_t* raw,uint8_t* processed,int processed_bit_len,int* trans_list)
 {/*置换选择,内部函数*/
 	int i;
@@ -392,8 +378,8 @@ int des_file_encode(const char* origin_path,const char* des_path, uint8_t* key)
     int i;
 	int byte_len,byte_len_next;
 	uint8_t raw[8],raw_next[8],processed[8];
-	FILE* origin = fopen(origin_path,"rb");
-	FILE* des = fopen(des_path,"wb");
+	FILE* origin;
+	FILE* des;
 	Subkey subkey[16];
     
     origin = fopen(origin_path,"rb");
