@@ -34,6 +34,8 @@ int _aes_mix_column(uint8_t* data,uint8_t* matrix)
 	*(uint32_t*)data = *(uint32_t*)result_buff;
 }
 */
+
+
 uint8_t xtime(uint8_t data)
 {
     const uint8_t mod = 0x1b;
@@ -373,56 +375,4 @@ int aes_file_decode(const char* origin_path,const char* des_path, uint32_t* key)
 	fclose(des);
 	return OK;
 }
-
-int main()
-{
-	/* 
-	uint8_t k[16] = {0x00,0x01,0x20,0x01,0x71,0x01,0x98,0xae,0xda,0x79,0x17,0x14,0x60,0x15,0x35,0x94};
-	uint32_t key[4];
-	uint32_t expanded_key[44];
-	uint8_t data[16] = {0x00,0x01,0x00,0x01,0x01,0xa1,0x98,0xaf,0xda,0x78,0x17,0x34,0x86,0x15,0x35,0x66};
-    uint8_t cipher[16];
-    uint8_t re[16];
-	memcpy(key,k,16);
-	//memset(data,0x1f,16);
-	//aes_generate_key(key,4);
-	aes_key_expand(key,4,expanded_key);
-	
-	#ifdef DEBUG
-	print_byte((uint8_t*)expanded_key,176,"expanded_key:");
-	#endif
-    
-	aes_unit_encode(data,cipher,expanded_key);
-	print_byte((uint8_t*)key,16,"key:");
-    print_byte(cipher,16,"cipher:");
-    aes_unit_decode(cipher,re,expanded_key);
-    print_byte(data,16,"origin_data");
-	
-	print_byte(re,16,"decrypted_data:");
-	*/ 
-	/*
-	uint8_t a = 0x02;
-	uint8_t b = 0x87;
-	printf("%x\n",mul_gf2_8(b,a));
-	*/
-	
-	
-	uint8_t k[16] = {0x00,0x01,0x20,0x01,0x71,0x01,0x98,0xae,0xda,0x79,0x17,0x14,0x60,0x15,0x35,0x94};
-	uint32_t key[4];
-	clock_t start,finish;
-	float time_used;
-	
-	start = clock(); 
-    //aes_generate_keyfile("aes.key");
-    aes_read_keyfile("aes.key",key);
-	aes_file_encode("test.zip","test.aes",key);
-	aes_file_decode("test.aes","aes_re.zip",key); 
-	finish = clock();
-	 
-	time_used = (double)(finish - start) / 1000;
-	printf("time:%fs\n",time_used);
-    getchar();
-    
-	return 0;
- } 
 
